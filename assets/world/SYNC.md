@@ -35,9 +35,14 @@ bash assets/world/build_deploy.sh && python3 assets/world/garden_smoke.py
                                                 # grows a second, invented crop/fertiliser economy
                                                 # instead; also guards world grounding (real
                                                 # steelworks terrain, never the old space void)
+python3 assets/world/sync_from_knitweb.py --check
+                                                # fails if assets/{viscosity,steelworks,rivierlab}
+                                                # drifted from the pinned vendor/knitweb submodule
+                                                # (molgang/pages) — replaces the old undetectable
+                                                # manual "re-copy" step; see the section below
 ```
 
-All three exit non-zero on drift, so they can gate CI or a pre-commit hook.
+All four exit non-zero on drift, so they can gate CI or a pre-commit hook.
 
 ## Rule 3 — web keeps its realism surplus
 
@@ -53,24 +58,30 @@ Web work ships on `web/*` branches with `web(moleculia):` commit prefixes and a
 PR against `main`, so Roblox-side agents can review data-contract changes.
 Rule-2 guards must pass before merge.
 
-## Synced copy — assets/viscosity/ (web viscosity room)
+## Generated copies — assets/{viscosity,steelworks,rivierlab}/
 
-`assets/viscosity/` is a deploy-ready copy of the viscosity room from the
-**molgang-knitweb** repo (`web/viscosity-room.html` → `index.html`, plus
-`viscosity-sim.js` and `quest-input.js`; header links rewritten to
-`../world/`). The physics authority is the Python module in molgang-web
-(`simulation/viscosity_lab/`, 50-check proof suite); the JS port is pinned
-to it by `tests/test_viscosity_sim_parity.py` in molgang-knitweb. Update
-flow: change molgang-knitweb first, re-copy here, rebuild the bundle with
-`build_deploy.sh`. The world links to it via the `interact: "viscosity"`
-prop (moleculia_gen.py) handled in world.js.
+These three directories are **generated**, not hand-copied, by
+`assets/world/sync_from_knitweb.py` from the `vendor/knitweb` submodule
+(molgang/pages, formerly Knitweb/molgang: `web/viscosity-room.html`,
+`web/steelworks.html` + `web/steelworks/data` (OSM terrain, ODbL,
+attribution shown in the UI), `web/rivierlab.html`, plus the shared
+`viscosity-sim.js`/`quest-input.js`). The exact link-rewrite rules (e.g.
+`href="index.html"` → `href="../world/"`, steelworks data paths flattened
+to `data/`) live as an explicit substitution list at the top of the script
+— **never hand-edit the generated files**, change the knitweb source and
+regenerate.
 
-## Synced copy — assets/steelworks/ (start-environment)
+The Python physics authority (`viscosity_core.py`, `river_flow.py`) is
+`vendor/physics` (molgang/physics, extracted from febuz/molgang-web with
+history preserved) — pinned as its own submodule, not routed through
+knitweb. `tests/test_*_sim_parity.py` in molgang/pages imports it directly
+from there.
 
-`assets/steelworks/` is a deploy-ready copy of the steelworks start page
-from **molgang-knitweb** (`web/steelworks.html` → `index.html`, header
-links rewritten to `../world/` & `../viscosity/`, data paths flattened to
-`data/`) plus the OSM terrain dataset (`web/steelworks/data`, ODbL,
-attribution shown in the UI). The game entry redirect now lands here:
-the player starts at their nearest real steel plant. Update flow: change
-molgang-knitweb first, re-copy, rebuild with `build_deploy.sh`.
+Update flow: bump the `vendor/knitweb` submodule pin (or edit `*_SUBS` in
+`sync_from_knitweb.py` if knitweb's HTML shape changed), run
+`python3 assets/world/sync_from_knitweb.py`, commit the regenerated files
+alongside the pin bump, rebuild the bundle with `build_deploy.sh`. Rule 2's
+`--check` catches anyone who skips this and hand-edits the generated copy
+instead. The world links to viscosity via the `interact: "viscosity"` prop
+(moleculia_gen.py) handled in world.js; the game entry redirect starts
+players at `steelworks/` (their nearest real steel plant).

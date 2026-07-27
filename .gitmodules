@@ -1,0 +1,3 @@
+[submodule "vendor/knitweb"]
+	path = vendor/knitweb
+	url = git@github.com:molgang/pages.git
