@@ -159,6 +159,9 @@ function buildRealTerrain(site) {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7),
       new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
     sign.position.set(ox, 3.2, oz + 60); sign.rotation.y = Math.PI;
+    sign.userData.def = { sign: true, name: site.name,
+      info: (site.river_names && site.river_names[0]) ? ('rivier: ' + site.river_names[0]) : 'plek in Moleculia' };
+    extraInteractables.push(sign);
     scene.add(sign);
   }
 }
@@ -356,6 +359,9 @@ function step(dt) {
     player.pos.x = Math.max(-half, Math.min(half, player.pos.x));
     player.pos.z = Math.max(-half, Math.min(half, player.pos.z));
   }
+  // collision: duw de speler uit massieve structuren (flat-mode; XR heeft eigen clamp)
+  { const rp = xrCollide(player.pos.x, player.pos.z, player.pos.x, player.pos.z);
+    player.pos.x = rp.x; player.pos.z = rp.z; }
   camera.position.copy(player.pos);
   const d = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch),
     Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
@@ -508,6 +514,7 @@ const PROP_INFO = {
   'gantry_crane_hd.glb': ['Portaalkraan', 'tilt slakkenpotten en schroot over spoor en kade'],
   'weighbridge_hd.glb': ['Weegbrug', 'optie: weeg de slakkenpot-transporten de poort in en uit'],
 };
+const extraInteractables = [];   // losse aanwijsbare props (bordjes e.d.)
 const _inspectCaster = new THREE.Raycaster();
 function inspectFrom(origin, dir) {
   _inspectCaster.set(origin, dir.normalize());
@@ -515,6 +522,7 @@ function inspectFrom(origin, dir) {
   const pool = [];
   for (const obj of live.values()) pool.push(obj);
   if (gardenGroup) pool.push(gardenGroup);
+  for (const e of extraInteractables) pool.push(e);
   const hits = _inspectCaster.intersectObjects(pool, true);
   for (const h of hits) {
     let n = h.object;
@@ -522,6 +530,7 @@ function inspectFrom(origin, dir) {
     if (!n) continue;
     const def = n.userData.def;
     if (def.garden) return gardenActivate(def.garden);
+    if (def.sign) return `🪧 ${def.name} — ${def.info}`;
     const info = PROP_INFO[def.ref];
     const name = info ? info[0]
       : def.ref.replace(/\.glb$/, '').replace(/_/g, ' ');
@@ -977,6 +986,144 @@ function tickXrToast(now) {
     _camPos.z + _xrFwd.z * 1.5);
 }
 
+
+/* ============================================================
+   VR-interactie: controller-laser, wereld-menu en collision.
+   (Toegevoegd voor betere gameplay op Meta Quest — trigger = menu.)
+   ============================================================ */
+let xrMenu = {};                                   // { group, rows, actions }
+const XR_PASSABLE = new Set([                       // grote props die je toch mag passeren
+  'info_kiosk_hd.glb', 'billboard_hd.glb', 'signpost_hd.glb',
+]);
+
+function xrMenuClose() {
+  if (xrMenu.group) {
+    scene.remove(xrMenu.group);
+    xrMenu.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
+  }
+  xrMenu = {};
+}
+
+function xrMenuBuild(title, rows, point) {
+  xrMenuClose();
+  const W = 600, RH = 82, H = 74 + rows.length * RH;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(12,16,24,0.95)'; roundRect(g, 4, 4, W - 8, H - 8, 20); g.fill();
+  g.strokeStyle = '#3fb6a8'; g.lineWidth = 4; roundRect(g, 4, 4, W - 8, H - 8, 20); g.stroke();
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.fillStyle = '#9fffd9'; g.font = 'bold 34px system-ui';
+  g.fillText(String(title).slice(0, 28), 28, 40);
+  g.font = '30px system-ui';
+  rows.forEach((r, idx) => {
+    const y = 74 + idx * RH;
+    g.fillStyle = 'rgba(63,182,168,0.12)'; roundRect(g, 16, y + 8, W - 32, RH - 16, 14); g.fill();
+    g.fillStyle = '#eef4fb'; g.fillText(String(r.l).slice(0, 32), 36, y + RH / 2 + 3);
+  });
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const pw = 0.95, aspect = H / W, ph = pw * aspect;
+  const grp = new THREE.Group();
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  panel.renderOrder = 1000; grp.add(panel);
+  const rowMeshes = [];
+  rows.forEach((r, idx) => {
+    const yc = 74 + idx * RH + RH / 2;
+    const rm = new THREE.Mesh(new THREE.PlaneGeometry(pw * 0.94, (RH - 16) / H * ph),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false }));
+    rm.position.set(0, (0.5 - yc / H) * ph, 0.002);
+    rm.userData.rowIndex = idx; grp.add(rm); rowMeshes.push(rm);
+  });
+  camera.getWorldPosition(_camPos);
+  const toP = _camPos.clone().sub(point); toP.y = 0;
+  if (toP.lengthSq() < 1e-4) toP.set(0, 0, 1);
+  toP.normalize();
+  grp.position.copy(point).add(toP.multiplyScalar(0.4));
+  grp.position.y = Math.max(point.y, 1.3);
+  grp.lookAt(_camPos);
+  scene.add(grp);
+  xrMenu = { group: grp, rows: rowMeshes, actions: rows.map((r) => r.a) };
+}
+
+function xrMenuInvoke(i) { const a = xrMenu.actions && xrMenu.actions[i]; if (a) a(); }
+
+function xrGardenApply(i, tool) {
+  try { gardenActivate('tool:' + tool); const r = gardenActivate('plot:' + i);
+    if (typeof r === 'string') xrToastShow(r); } catch (e) { /* garden not ready */ }
+  xrMenuClose();
+}
+
+function xrCropMenu(i, point) {
+  const list = (typeof crops !== 'undefined' && crops) ? crops.slice(0, 6) : [];
+  const rows = list.map((c) => ({ l: '\U0001F331 ' + c.name, a: () => xrGardenApply(i, c.id) }));
+  rows.push({ l: '← terug', a: () => xrOpenMenuFor({ garden: 'plot:' + i }, point) });
+  xrMenuBuild('Kies gewas — vak ' + (i + 1), rows, point);
+}
+
+function xrOpenMenuFor(def, point) {
+  if (def.garden) {
+    const [kind, val] = def.garden.split(':');
+    if (kind === 'plot') {
+      const i = +val;
+      xrMenuBuild('Plantvak ' + (i + 1), [
+        { l: '\U0001F331 Zaaien…', a: () => xrCropMenu(i, point) },
+        { l: '\U0001F4A7 Water geven', a: () => xrGardenApply(i, 'water') },
+        { l: '\U0001F9EA Bemesten', a: () => xrGardenApply(i, 'fertilize') },
+        { l: '\U0001F33E Oogsten', a: () => xrGardenApply(i, 'harvest') },
+      ], point);
+    } else {
+      let r; try { r = gardenActivate(def.garden); } catch (e) { r = null; }
+      if (typeof r === 'string') xrToastShow(r);
+      xrMenuClose();
+    }
+    return;
+  }
+  if (def.sign) {
+    xrMenuBuild('\U0001FAA7 ' + (def.name || 'Bord'),
+      [{ l: def.info || 'plek in Moleculia', a: xrMenuClose }, { l: 'Sluiten', a: xrMenuClose }], point);
+    return;
+  }
+  const info = def.ref ? PROP_INFO[def.ref] : null;
+  const name = info ? info[0] : (def.ref ? def.ref.replace(/\.glb$/, '').replace(/_/g, ' ') : 'Object');
+  xrMenuBuild('\U0001F50D ' + name,
+    [{ l: info ? info[1] : 'geen extra info', a: xrMenuClose }, { l: 'Sluiten', a: xrMenuClose }], point);
+}
+
+function xrOnSelect(origin, dir) {
+  try {
+    _inspectCaster.set(origin, dir.clone().normalize()); _inspectCaster.far = 60;
+    if (xrMenu.group) {                              // eerst: klik op een menu-rij
+      const mh = _inspectCaster.intersectObjects(xrMenu.rows, true)[0];
+      if (mh) { let n = mh.object; while (n && n.userData.rowIndex === undefined) n = n.parent;
+        if (n) { xrMenuInvoke(n.userData.rowIndex); return; } }
+    }
+    const pool = [];
+    for (const o of live.values()) pool.push(o);
+    if (gardenGroup) pool.push(gardenGroup);
+    for (const e of extraInteractables) pool.push(e);
+    const hits = _inspectCaster.intersectObjects(pool, true);
+    for (const h of hits) { let n = h.object; while (n && !n.userData.def) n = n.parent;
+      if (!n) continue; return xrOpenMenuFor(n.userData.def, h.point); }
+    xrMenuClose();                                    // niets geraakt -> menu weg
+  } catch (e) { /* best-effort */ }
+}
+
+// Stick-locomotie botst tegen grote massieve props (Nexus-hub, torens, silo's).
+function xrCollide(nx, nz, px, pz) {
+  if (window.__molgangNoCollide) return { x: nx, z: nz };
+  const PR = 0.35; let x = nx, z = nz;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const g of live.values()) {
+      const d = g.userData && g.userData.def;
+      // structuren (s>=3) blokkeren; kleine props/pedestals (s<3) blijven beloopbaar
+      if (!d || !(d.s >= 3) || (d.ref && XR_PASSABLE.has(d.ref))) continue;
+      const rr = d.s * 0.32 + PR; let dx = x - d.x, dz = z - d.z, dist = Math.hypot(dx, dz);
+      if (dist < rr) { if (dist < 1e-4) { dx = 1; dz = 0; dist = 1; } const k = rr / dist; x = d.x + dx * k; z = d.z + dz * k; }
+    }
+  }
+  return { x, z };
+}
+
 async function enterXR() {
   if (!xrMode) return;
   const opts = xrMode === 'immersive-ar'
@@ -1003,6 +1150,47 @@ async function enterXR() {
   // headset (they used to stay parked at the spawn point: barely any objects).
   const xrOff = { x: 0, z: 0, yaw: 0, base: null };
   xrActiveSession = session;
+  session.__controllers = [];
+  for (let ci = 0; ci < 2; ci++) {
+    const ctl = renderer.xr.getController(ci);
+    const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+    const laser = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x3f6f7f, transparent: true, opacity: 0.5, depthTest: false }));
+    laser.name = 'laser'; laser.renderOrder = 998; ctl.add(laser);
+    scene.add(ctl); session.__controllers.push(ctl);
+  }
+  session.__marker = new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 12),
+    new THREE.MeshBasicMaterial({ color: 0x9fffd9, transparent: true, opacity: 0.9, depthTest: false }));
+  session.__marker.renderOrder = 999; session.__marker.visible = false; scene.add(session.__marker);
+  session.__frame = (dt, now) => {
+    try {
+      if (xrMenu.group) { camera.getWorldPosition(_camPos); xrMenu.group.lookAt(_camPos); }
+      for (const ctl of (session.__controllers || [])) {
+        const laser = ctl.getObjectByName('laser'); if (!laser) continue;
+        const o = new THREE.Vector3().setFromMatrixPosition(ctl.matrixWorld);
+        const dir = new THREE.Vector3(0, 0, -1).transformDirection(ctl.matrixWorld);
+        _inspectCaster.set(o, dir); _inspectCaster.far = 60;
+        const pool = [];
+        for (const g of live.values()) pool.push(g);
+        if (gardenGroup) pool.push(gardenGroup);
+        for (const e of extraInteractables) pool.push(e);
+        if (xrMenu.group) pool.push(xrMenu.group);
+        const h = _inspectCaster.intersectObjects(pool, true)[0];
+        let act = false, d = 5;
+        if (h) { d = Math.min(h.distance, 5); let n = h.object;
+          while (n && n.userData.def === undefined && n.userData.rowIndex === undefined) n = n.parent;
+          act = !!n; if (act && (!session.__best || h.distance < session.__best.dist)) session.__best = { p: h.point.clone(), dist: h.distance }; }
+        laser.scale.z = d;
+        laser.material.color.setHex(act ? 0x9fffd9 : 0x3f6f7f);
+        laser.material.opacity = act ? 0.95 : 0.5;
+      }
+      if (session.__marker) {
+        if (session.__best) { session.__marker.visible = true; session.__marker.position.copy(session.__best.p);
+          session.__marker.scale.setScalar(0.7 + 0.25 * Math.sin(now * 0.008)); }
+        else session.__marker.visible = false;
+        session.__best = null;
+      }
+    } catch (e) { /* frame best-effort */ }
+  };
   session.__recenter = () => { xrOff.x = 0; xrOff.z = 0; xrOff.yaw = 0; session.__syncSpace(); xrToastShow('🧭 world recentered'); };
   session.__syncSpace = () => {
     xrOff.base = xrOff.base || renderer.xr.getReferenceSpace();
@@ -1070,8 +1258,11 @@ async function enterXR() {
         camera.getWorldDirection(_xrFwd); _xrFwd.y = 0; _xrFwd.normalize();
         const right = { x: -_xrFwd.z, z: _xrFwd.x };
         const sp = (xrSettings.speed || 6) * dt;
-        xrOff.x += (_xrFwd.x * -ay + right.x * ax) * sp;
-        xrOff.z += (_xrFwd.z * -ay + right.z * ax) * sp;
+        const ddx = (_xrFwd.x * -ay + right.x * ax) * sp;
+        const ddz = (_xrFwd.z * -ay + right.z * ax) * sp;
+        camera.getWorldPosition(_camPos);
+        const rp = xrCollide(_camPos.x + ddx, _camPos.z + ddz, _camPos.x, _camPos.z);
+        xrOff.x += rp.x - _camPos.x; xrOff.z += rp.z - _camPos.z;
         session.__syncSpace();
       }
     }
@@ -1081,6 +1272,8 @@ async function enterXR() {
   session.addEventListener('select', (ev) => {
     try {
       const src = ev.inputSource;
+      try { const ha = src && src.gamepad && src.gamepad.hapticActuators && src.gamepad.hapticActuators[0];
+        if (ha && ha.pulse) ha.pulse(0.5, 45); } catch (e2) { /* geen haptics */ }
       const frame = ev.frame;
       const ref = renderer.xr.getReferenceSpace();
       const pose = frame && src.targetRaySpace
@@ -1089,12 +1282,11 @@ async function enterXR() {
       const o = pose.transform.position, d = pose.transform.orientation;
       const dir = new THREE.Vector3(0, 0, -1)
         .applyQuaternion(new THREE.Quaternion(d.x, d.y, d.z, d.w));
-      const hit = inspectFrom(new THREE.Vector3(o.x, o.y, o.z), dir);
-      if (hit) xrToastShow(hit);
+      xrOnSelect(new THREE.Vector3(o.x, o.y, o.z), dir);
     } catch { /* inspection is best-effort */ }
   });
   session.__syncSpace();                          // apply the saved floor offset
-  xrToastShow('🥽 L-stick = lopen (alle richtingen) · R-stick = draaien · trigger = inspecteer · A = AR · B = zone');
+  xrToastShow('🥽 L-stick = lopen (alle richtingen) · R-stick = draaien · trigger = menu/kies · A = AR · B = zone');
   session.addEventListener('end', () => {
     scene.background = skyBg; setFloorHidden(false); xrActiveSession = null;
     if (xrBtn) xrBtn.disabled = false;
@@ -1940,6 +2132,7 @@ function loop(now) {
   const xr = renderer.xr.isPresenting;
   if (xr) {
     const s = renderer.xr.getSession(); if (s && s.__pollButtons) s.__pollButtons(dt);
+    if (s && s.__frame) s.__frame(dt, now);
     // player.pos follows the headset's WORLD position (stick + physical walk),
     // so streaming/interactions/collection/sun track the viewer in XR.
     camera.getWorldPosition(_camPos);
