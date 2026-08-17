@@ -1,0 +1,312 @@
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOLGANG — Lab &amp; Schuurruimte (veiligheidssimulatie)</title>
+<style>
+  :root{ --bg:#0a0e13; --panel:#141c25; --line:#243342; --ink:#eaf2f5; --dim:#89a0b0;
+    --teal:#3fb6a8; --amber:#f4b41a; --bad:#ff6b6b; --good:#38d39f; }
+  *{margin:0;box-sizing:border-box} html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;overflow:hidden}
+  header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);
+    background:rgba(10,14,19,.7);position:relative;z-index:5}
+  .brand{font-weight:700} .brand .dim{color:var(--dim);font-weight:400}
+  .spacer{flex:1}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:.9em}
+  .ghost:hover{color:var(--ink);border-color:var(--teal)} #enter-vr:disabled{opacity:.4}
+  main{display:grid;grid-template-columns:1fr 320px;height:calc(100% - 49px)}
+  #stage{position:relative} #c{display:block;width:100%;height:100%}
+  aside{overflow-y:auto;padding:12px;background:#0e141b;border-left:1px solid var(--line)}
+  .lbl{text-transform:uppercase;letter-spacing:.08em;font-size:.68em;color:var(--dim);margin:12px 0 6px;font-weight:600}
+  .lbl:first-child{margin-top:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .row{display:flex;justify-content:space-between;font-size:.9em;margin:3px 0} .row .k{color:var(--dim)}
+  .row b{font-family:ui-monospace,Menlo,monospace}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .btns button{background:#18222d;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px;cursor:pointer;font-size:.85em}
+  .btns button:hover{border-color:var(--teal)} .btns button.on{border-color:var(--good);color:var(--good)}
+  .btns button.wide{grid-column:1/-1}
+  .warn{color:var(--bad);font-weight:600;font-size:.9em;min-height:20px}
+  .hud{position:absolute;left:14px;bottom:14px;font:12px ui-monospace,Menlo,monospace;color:var(--dim);
+    background:rgba(10,14,19,.6);border:1px solid var(--line);border-radius:8px;padding:8px 12px;pointer-events:none;max-width:60%}
+  .toast{position:absolute;left:50%;top:18px;transform:translateX(-50%);background:#18222d;border:1px solid var(--amber);
+    border-radius:10px;padding:9px 16px;font-weight:600;opacity:0;transition:.3s;pointer-events:none;z-index:6}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(4px)}
+  .bar{height:8px;border-radius:4px;background:#0c141b;overflow:hidden;margin-top:3px}
+  .bar > i{display:block;height:100%;background:var(--teal)}
+  @media(max-width:820px){main{grid-template-columns:1fr}aside{display:none}}
+</style></head>
+<body>
+<header>
+  <div class="brand">MOLGANG <span class="dim">/ Lab &amp; Schuurruimte</span></div>
+  <div class="spacer"></div>
+  <button class="ghost" id="enter-vr" disabled>Enter VR</button>
+  <a class="ghost" href="../world/">← Wereld</a>
+</header>
+<main>
+  <div id="stage">
+    <canvas id="c"></canvas>
+    <div class="toast" id="toast"></div>
+    <div class="hud">Loop tussen <b>schuurruimte</b> (links) en <b>lab</b> (rechts). Klik/knop = bedienen · trigger in VR.
+      Vul de kogelmolen met de <b>kraan+slang</b> of de <b>emmer</b> om nat (stofvrij) te malen.
+      Draag PPE bij hoge dB, toxisch gas, of hete/bijtende stations.</div>
+  </div>
+  <aside>
+    <div class="lbl">Meetinstrumenten</div>
+    <div class="card">
+      <div class="row"><span class="k">Ruimte</span><b id="m-room">lab</b></div>
+      <div class="row"><span class="k">pH</span><b id="m-ph">7.0</b></div>
+      <div class="row"><span class="k">Temperatuur</span><b id="m-temp">20 °C</b></div>
+      <div class="row"><span class="k">Gas</span><b id="m-gas">0 mg/m³</b></div>
+      <div class="row"><span class="k">↳ % grenswaarde</span><b id="m-oel">0 %</b></div>
+      <div class="row"><span class="k">Geluid</span><b id="m-db">— dB(A)</b></div>
+      <div class="row"><span class="k">Weer</span><b id="m-weather">helder</b></div>
+      <div class="row"><span class="k">Molen water / slurry</span><b id="m-mill">0 / 0 L</b></div>
+    </div>
+    <div class="lbl">Robot (automatiseerbaar)</div>
+    <div class="card">
+      <div class="row"><span class="k">Accu-temp</span><b id="m-batt">25 °C</b></div>
+      <div class="row"><span class="k">Lading</span><b id="m-soc">100 %</b></div>
+      <div class="bar"><i id="soc-bar" style="width:100%"></i></div>
+      <div class="btns" style="margin-top:8px">
+        <button id="b-robot-ph">Meet pH</button>
+        <button id="b-robot-t">Meet temp</button>
+      </div>
+    </div>
+    <div class="lbl">PPE — bescherming</div>
+    <div class="card btns">
+      <button id="b-mask">🫁 Gasmasker</button>
+      <button id="b-ears">🎧 Gehoor</button>
+      <button id="b-arms">🧤 Armen</button>
+      <div class="row wide" style="grid-column:1/-1;margin-top:4px"><span class="k">Gas-dosis</span><b id="m-gasdose">0 %</b></div>
+      <div class="row wide" style="grid-column:1/-1"><span class="k">Geluid-dosis</span><b id="m-noisedose">0 %</b></div>
+    </div>
+    <div class="lbl">Stations</div>
+    <div class="card btns">
+      <button id="b-mill">⚙ Schuurmolen: uit</button>
+      <button id="b-acid">🧪 Azijnzuur +</button>
+      <button id="b-heat">🔥 Verwarmer: uit</button>
+      <button id="b-co2">🫧 CO₂ carbonateer</button>
+      <button id="b-reset" class="wide">↺ Reset</button>
+    </div>
+    <div class="warn" id="warn"></div>
+  </aside>
+</main>
+<script type="importmap">
+{ "imports": { "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { LabWorld, OEL } from './lab-sim.js';
+
+const $ = s => document.querySelector(s);
+const sim = new LabWorld();
+let heaterOn = false, acidTimer = 0;
+const SPN = { Mn_dust:'slakstof (Mn/silica)', HAc_vapor:'azijnzuurdamp', V2O5:'V₂O₅',
+  SO2:'SO₂', H2S:'H₂S', Cl2:'Cl₂', NH3:'NH₃', RCS:'kristallijn silica' };
+
+/* renderer / scene */
+const canvas = $('#c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.xr.enabled = true;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a0e13);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(55,1,0.05,80); camera.position.set(2.4,1.7,3.4);
+const controls = new OrbitControls(camera, canvas); controls.target.set(0,1,0);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI*0.52;
+const sky = new THREE.HemisphereLight(0x9fd0ff,0x141c25,0.7); scene.add(sky);
+const sun = new THREE.DirectionalLight(0xffffff,2.0); sun.position.set(3,6,2); scene.add(sun);
+
+const MAT = (c,o={}) => new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:.8},o));
+const steel = MAT(0xb9c4cc,{metalness:.85,roughness:.35}), dark = MAT(0x5a6672,{metalness:.7,roughness:.5});
+
+/* rooms: schuurruimte (x<0) | lab (x>0), muur op x=0 */
+const floor = new THREE.Mesh(new THREE.BoxGeometry(14,0.1,8), MAT(0x18222d)); floor.position.y=-0.05; scene.add(floor);
+const wall = (x,z,w,h,rotY=0)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,0.12),MAT(0x121a23));
+  m.position.set(x,h/2,z); m.rotation.y=rotY; scene.add(m); return m; };
+wall(0,0,8,3);                                   // middenmuur
+wall(-3.5,-4,7,3); wall(3.5,-4,7,3);             // achterwand
+wall(-7,0,8,3,Math.PI/2); wall(7,0,8,3,Math.PI/2); // zijwanden
+const doorGap = new THREE.Mesh(new THREE.BoxGeometry(1.4,2.2,0.14), MAT(0x0a0e13)); doorGap.position.set(0,1.1,2.6); scene.add(doorGap);
+
+/* labels boven de ruimtes */
+function label(text,x,color){ const cv=document.createElement('canvas');cv.width=512;cv.height=96;const g=cv.getContext('2d');
+  g.fillStyle='#0e141bcc';g.fillRect(0,0,512,96);g.fillStyle=color;g.font='bold 46px system-ui';g.textAlign='center';g.textBaseline='middle';
+  g.fillText(text,256,50);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true}));
+  sp.scale.set(3,0.56,1);sp.position.set(x,2.7,-3.5);scene.add(sp); }
+label('SCHUURRUIMTE',-3.5,'#f4b41a'); label('NAT-LAB',3.5,'#3fb6a8');
+
+/* ---- schuurruimte: schuurmolen ---- */
+const mill = new THREE.Group();
+const millDrum=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.55,1.3,28),steel); millDrum.position.set(0,0.9,0); mill.add(millDrum);
+const millMotor=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.4,0.5),dark); millMotor.position.set(0,1.75,0); mill.add(millMotor);
+const millHopper = new THREE.Mesh(new THREE.ConeGeometry(0.4,0.4,4),MAT(0x8b7d6b)); millHopper.position.set(0.55,1.5,0); mill.add(millHopper);
+mill.position.set(-3.5,0,-2); scene.add(mill);
+
+/* kraan (muur) + tuinslang (bouwmarkt-artikel) + emmer om de kogelmolen te vullen */
+const tap = new THREE.Group();
+const tapBody = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.14,12),MAT(0xb9c4cc,{metalness:.9,roughness:.3})); tapBody.rotation.z=Math.PI/2; tap.add(tapBody);
+const tapSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.02,0.12,12),steel); tapSpout.position.set(0.05,-0.06,0); tap.add(tapSpout);
+const tapValve = new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.02,16),MAT(0xff5555)); tapValve.position.set(-0.03,0.05,0); tap.add(tapValve);
+tap.position.set(-5.6,1.4,-3.4); scene.add(tap);
+const hoseCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(-5.54,1.34,-3.4),
+  new THREE.Vector3(-5.2,0.8,-3.0),new THREE.Vector3(-4.5,0.55,-2.5),
+  new THREE.Vector3(-3.9,0.9,-2.15),new THREE.Vector3(-3.55,1.5,-2.0)]);
+const hose = new THREE.Mesh(new THREE.TubeGeometry(hoseCurve,44,0.028,8),MAT(0x2f8f4f,{roughness:.7})); scene.add(hose);
+const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.035,0.12,12),steel); nozzle.position.set(-3.55,1.52,-2.0); nozzle.rotation.x=Math.PI*0.4; scene.add(nozzle);
+let waterJet = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.02,1,10),new THREE.MeshStandardMaterial({color:0x9fd0ff,transparent:true,opacity:.6,roughness:.1})); waterJet.visible=false; scene.add(waterJet);
+const bucket = new THREE.Group();
+const bkt = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.13,0.26,20,1,true),MAT(0x3a6ea5)); bkt.material.side=THREE.DoubleSide; bucket.add(bkt);
+const bktBottom = new THREE.Mesh(new THREE.CircleGeometry(0.13,20),dark); bktBottom.rotation.x=-Math.PI/2; bktBottom.position.y=-0.13; bucket.add(bktBottom);
+const bktWater = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.13,0.18,20),new THREE.MeshStandardMaterial({color:0x9fd0ff,transparent:true,opacity:.7})); bktWater.position.y=-0.02; bucket.add(bktWater);
+const bktHandle = new THREE.Mesh(new THREE.TorusGeometry(0.15,0.008,8,16,Math.PI),steel); bktHandle.position.y=0.13; bucket.add(bktHandle);
+bucket.position.set(-4.5,0.15,-1.1); scene.add(bucket);
+let hoseOn=false;
+
+/* ---- lab: bench + tank + heater + acid + co2 ---- */
+const bench = new THREE.Mesh(new THREE.BoxGeometry(2.2,0.1,0.9),MAT(0x2a3644)); bench.position.set(3.5,0.9,-1.5); scene.add(bench);
+const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.29,0.5,28),new THREE.MeshStandardMaterial({color:0x4d6f8f,roughness:.3,transparent:true,opacity:.9}));
+tank.position.set(3.2,1.2,-1.5); scene.add(tank);
+const tankShell = new THREE.Mesh(new THREE.CylinderGeometry(0.31,0.3,0.52,28),new THREE.MeshStandardMaterial({color:0xb9c4cc,metalness:.8,roughness:.35,side:THREE.DoubleSide}));
+tankShell.position.copy(tank.position); scene.add(tankShell);
+const heater = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,0.1,28),MAT(0x33251f)); heater.position.set(3.2,0.98,-1.5); scene.add(heater);
+const acidBottle = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.3,18),new THREE.MeshStandardMaterial({color:0xf4b41a,transparent:true,opacity:.85})); acidBottle.position.set(4.0,1.1,-1.5); scene.add(acidBottle);
+const co2 = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,0.7,18),MAT(0x2f6f4f)); co2.position.set(4.5,1.25,-1.5); scene.add(co2);
+
+/* ---- robot (cobot op AGV) ---- */
+const robot = new THREE.Group();
+const rbase = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.28,0.2,20),dark); robot.add(rbase);
+const rcol = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.5,16),steel); rcol.position.y=0.35; robot.add(rcol);
+const rarm = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.07,0.07),steel); rarm.position.set(0.2,0.6,0); robot.add(rarm);
+const rbatt = new THREE.Mesh(new THREE.BoxGeometry(0.18,0.12,0.22),new THREE.MeshStandardMaterial({color:0x223,emissive:0x000000})); rbatt.position.set(0,0.12,0.16); robot.add(rbatt);
+robot.position.set(-2,0,1); scene.add(robot);
+
+/* ---- PPE-rek (bij de deur) ---- */
+const ppeRack = new THREE.Group();
+const mkPPE=(c,x)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.12),MAT(c)); m.position.set(x,1.4,0); ppeRack.add(m); return m; };
+const maskMesh=mkPPE(0x38d39f,-0.3), earsMesh=mkPPE(0xf4b41a,0), armsMesh=mkPPE(0x6fb0ff,0.3);
+ppeRack.position.set(0.9,0,2.4); scene.add(ppeRack);
+
+/* ---- fysische effecten: stof (schuur), stoom (verwarmer), gas-waas ---- */
+function particles(n,color,size){ const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(n*3),3));
+  const p=new THREE.Points(g,new THREE.PointsMaterial({color,size,transparent:true,opacity:0.0,depthWrite:false}));
+  p.userData.n=n; scene.add(p); return p; }
+const dust = particles(220,0xd8cbb0,0.05), steam = particles(160,0xdfe8ef,0.06);
+const gasHaze = new THREE.Mesh(new THREE.SphereGeometry(3.2,16,12),new THREE.MeshBasicMaterial({color:0xc7d17a,transparent:true,opacity:0,side:THREE.BackSide,depthWrite:false}));
+scene.add(gasHaze);
+
+/* ---- interactie: klik (desktop) + XR trigger ---- */
+const ray=new THREE.Raycaster(), ptr=new THREE.Vector2();
+const hits=[[mill,()=>toggleMill()],[millHopper,()=>toggleMill()],[acidBottle,()=>addAcid()],
+  [heater,()=>toggleHeat()],[co2,()=>doCO2()],[tank,()=>addAcid()],
+  [maskMesh,()=>togglePPE('mask')],[earsMesh,()=>togglePPE('ears')],[armsMesh,()=>togglePPE('arms')],
+  [tap,()=>toggleHose()],[nozzle,()=>toggleHose()],[bucket,()=>pourBucket()],
+  [robot,()=>sim.robot.enqueue(3.2,-1.5,'measure')]];
+hits.forEach(([o])=>o.traverse(n=>n.userData.click=true));
+canvas.addEventListener('pointerdown',ev=>{ const r=canvas.getBoundingClientRect();
+  ptr.x=((ev.clientX-r.left)/r.width)*2-1; ptr.y=-((ev.clientY-r.top)/r.height)*2+1; ray.setFromCamera(ptr,camera);
+  for(const [o,fn] of hits){ if(ray.intersectObject(o,true).length){ fn(); break; } } });
+
+/* ---- acties ---- */
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),2200); }
+function toggleMill(){ sim.mill.on=!sim.mill.on;
+  toast(sim.mill.on ? (sim.mill.isWet() ? 'Schuurmolen aan (nat) — stofvrij, pompbare slurry' : 'Schuurmolen aan (droog) — respirabel slakstof (Mn/silica) + hoog geluid! Vul met kraan/emmer om nat te malen') : 'Schuurmolen uit'); }
+function toggleHose(){ hoseOn=!hoseOn; toast(hoseOn?'Kraan open — vul de kogelmolen (nat vermalen = stofvrij)':'Kraan dicht'); }
+function pourBucket(){ const a=sim.mill.addWater(6); toast(a>0?`Emmer in de molen geleegd: +${a.toFixed(0)} L water`:'Molen is vol'); }
+function toggleHeat(){ heaterOn=!heaterOn; $('#b-heat').classList.toggle('on',heaterOn); $('#b-heat').textContent=`🔥 Verwarmer: ${heaterOn?'AAN':'uit'}`; }
+function addAcid(){ sim.rooms.lab.ph.addStrong(0.02); acidTimer=6; toast('Azijnzuur toegevoegd — pH daalt, zuurdamp komt vrij'); }
+function doCO2(){ sim.rooms.lab.ph.neutralize(0.004); sim.rooms.lab.gas.release(30); toast('CO₂ carbonatatie — Ca vangt weg, pH stijgt licht'); }
+function togglePPE(k){ sim.ppe[k]=!sim.ppe[k]; const b={mask:'#b-mask',ears:'#b-ears',arms:'#b-arms'}[k];
+  $(b).classList.toggle('on',sim.ppe[k]); toast((sim.ppe[k]?'PPE aan: ':'PPE af: ')+({mask:'gasmasker',ears:'gehoorbescherming',arms:'armbescherming'}[k])); }
+$('#b-mill').onclick=toggleMill; $('#b-acid').onclick=addAcid; $('#b-heat').onclick=toggleHeat; $('#b-co2').onclick=doCO2;
+$('#b-mask').onclick=()=>togglePPE('mask'); $('#b-ears').onclick=()=>togglePPE('ears'); $('#b-arms').onclick=()=>togglePPE('arms');
+$('#b-robot-ph').onclick=()=>sim.robot.enqueue(3.2,-1.5,'measure_ph');
+$('#b-robot-t').onclick=()=>sim.robot.enqueue(3.2,-1.5,'measure_t');
+$('#b-reset').onclick=()=>{ location.reload(); };
+const weatherStates=['clear','rain','cold','heat'];
+
+/* ---- meet-callback van de robot ---- */
+function onRobotMeasure(kind){ const s=sim.snapshot();
+  if(kind==='measure_t') toast(`🤖 Robot: temperatuur ${s.temp.toFixed(1)} °C`);
+  else toast(`🤖 Robot: pH ${s.ph.toFixed(2)} · gas ${(s.gasFrac*100).toFixed(0)}% grenswaarde`); }
+
+/* ---- hoofdlus ---- */
+let prev=0, frame=0;
+renderer.setAnimationLoop((tMs)=>{ const t=tMs/1000; const dt=Math.min(t-prev||0.016,0.05); prev=t; frame++;
+  // speler-locatie -> ruimte (muur op x=0)
+  camera.getWorldPosition(_cp);
+  const room = _cp.x < 0 ? 'grind' : 'lab';
+  sim.setPlayer(_cp.x, _cp.z, room);                 // ruimte-species komt uit speciesByRoom
+  // actieve processen -> bronnen (de molen zelf drijft stof+geluid in sim.step)
+  if(heaterOn) sim.rooms.lab.thermo.addHeat(650);
+  if(acidTimer>0){ acidTimer-=dt; sim.rooms.lab.gas.release(14.0); }
+  if(hoseOn) sim.mill.addWater(1.5*dt);              // kraan+slang vult de molen (~1,5 L/s)
+  const snap = sim.step(dt, onRobotMeasure);
+  // waterstraal van de slang naar de molen
+  waterJet.visible = hoseOn;
+  if(hoseOn){ const a=new THREE.Vector3(-3.55,1.5,-2.0), b=new THREE.Vector3(mill.position.x,1.35,mill.position.z);
+    waterJet.position.copy(a.clone().add(b).multiplyScalar(0.5)); waterJet.scale.y=a.distanceTo(b); waterJet.lookAt(b); waterJet.rotateX(Math.PI/2); }
+
+  /* visuals uit sim-toestand */
+  robot.position.lerp(new THREE.Vector3(snap.robot.x,0,snap.robot.z),0.3);
+  rbatt.material.emissive.setHex(0x000000).lerp(new THREE.Color(0xff4400),
+    THREE.MathUtils.clamp((snap.robot.battC-30)/25,0,1)); // accu gloeit bij warmte
+  const gasO = THREE.MathUtils.clamp(snap.gasFrac*0.12,0,0.5); gasHaze.material.opacity=gasO;
+  gasHaze.position.set(room==='grind'?-3.5:3.5,1.4,-2);
+  puff(dust, (sim.mill.on && !sim.mill.wet)?0.9:0.0, mill.position, 1.0, dt, frame);
+  puff(steam, heaterOn?0.8:0.0, new THREE.Vector3(3.2,1.5,-1.5), 0.5, dt, frame);
+  // dag/nacht + weer op de hemel
+  const hue = THREE.MathUtils.clamp((snap.weather.outdoor+10)/40,0,1);
+  sky.intensity = 0.35 + 0.55*Math.max(0,Math.sin((snap.weather.hour-6)/12*Math.PI));
+  scene.background.setHSL(0.6, 0.4, 0.05 + 0.05*sky.intensity);
+
+  if(frame%6===0) updatePanel(snap);
+  controls.update(); renderer.render(scene,camera);
+});
+const _cp=new THREE.Vector3();
+function puff(pts,amt,origin,spread,dt,frame){ const a=pts.geometry.attributes.position.array; const n=pts.userData.n;
+  pts.material.opacity += (amt*0.6 - pts.material.opacity)*0.1;
+  for(let i=0;i<n;i++){ const j=i*3; a[j+1]+=dt*(0.4+0.3*amt);
+    if(a[j+1]>origin.y+1.6 || (frame%120===0 && Math.random()<0.02)){ a[j]=origin.x+(Math.random()-0.5)*spread; a[j+1]=origin.y+0.2; a[j+2]=origin.z+(Math.random()-0.5)*spread; } }
+  pts.geometry.attributes.position.needsUpdate=true; }
+
+function updatePanel(s){
+  $('#m-room').textContent = s.room==='grind'?'schuurruimte':'lab';
+  $('#m-ph').textContent = s.ph.toFixed(2);
+  $('#m-temp').textContent = s.temp.toFixed(1)+' °C';
+  $('#m-gas').textContent = s.gas.toFixed(3)+' mg/m³ ('+(SPN[s.species]||s.species)+')';
+  $('#b-mill').classList.toggle('on',sim.mill.on); $('#b-mill').textContent=`⚙ Schuurmolen: ${sim.mill.on?'AAN':'uit'}`;
+  const mm=$('#m-mill'); mm.textContent=`${s.mill.water.toFixed(1)} / ${s.mill.slurry.toFixed(1)} L`+(s.mill.wet?' 💧nat':(sim.mill.on?' ⚠droog':''));
+  mm.style.color = s.mill.wet?'#38d39f':(sim.mill.on?'#f4b41a':'#eaf2f5');
+  $('#b-heat').classList.toggle('on',heaterOn);
+  const oelPct = s.gasFrac*100; $('#m-oel').textContent = oelPct.toFixed(0)+' %';
+  $('#m-oel').style.color = oelPct>100?'#ff6b6b':(oelPct>50?'#f4b41a':'#eaf2f5');
+  $('#m-db').textContent = s.db.toFixed(0)+' dB(A)';
+  $('#m-db').style.color = s.db>=87?'#ff6b6b':(s.db>=80?'#f4b41a':'#eaf2f5');
+  $('#m-weather').textContent = ({clear:'helder',rain:'regen',cold:'koud',heat:'hitte'}[s.weather.state])+` · ${s.weather.outdoor.toFixed(0)}°C · ${s.weather.hour.toFixed(0)}u`;
+  $('#m-batt').textContent = s.robot.battC.toFixed(1)+' °C';
+  $('#m-batt').style.color = s.robot.battC>50?'#ff6b6b':'#eaf2f5';
+  $('#m-soc').textContent = (s.robot.soc*100).toFixed(0)+' %'; $('#soc-bar').style.width=(s.robot.soc*100)+'%';
+  $('#m-gasdose').textContent = (s.ppe.gasDose*100).toFixed(1)+' %';
+  $('#m-noisedose').textContent = (s.ppe.noiseDose*100).toFixed(1)+' %';
+  $('#b-mask').classList.toggle('on',s.ppe.mask); $('#b-ears').classList.toggle('on',s.ppe.ears); $('#b-arms').classList.toggle('on',s.ppe.arms);
+  $('#warn').innerHTML = s.warnings.join('<br>');
+  if(s.warnings.length && frame%180<6) toast(s.warnings[0]);
+}
+
+/* resize + VR */
+function resize(){ const w=canvas.clientWidth||stage.clientWidth,h=canvas.clientHeight||600;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+const stage=$('#stage'); new ResizeObserver(resize).observe(stage); resize();
+if(navigator.xr){ navigator.xr.isSessionSupported('immersive-vr').then(ok=>{ if(!ok)return;
+  const b=$('#enter-vr'); b.disabled=false; const vb=VRButton.createButton(renderer); vb.style.display='none';
+  document.body.appendChild(vb); b.onclick=()=>vb.click(); }).catch(()=>{}); }
+// cyclische weersverandering (elke ~90 s)
+setInterval(()=>{ sim.weather.state = weatherStates[(weatherStates.indexOf(sim.weather.state)+1)%weatherStates.length]; }, 90000);
+</script>
+</body></html>
